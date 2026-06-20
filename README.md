@@ -1,67 +1,49 @@
 # Lifestack
 
-A self-hosted, containerized personal metrics aggregator ("Digital Life Quantifier") that pulls data from third-party APIs (GitHub, WakaTime, Spotify) and exports them in Prometheus format.
+A custom personal metrics aggregator ("Digital Life Quantifier") that pulls data from third-party APIs (GitHub, WakaTime, Spotify) and exports them in Prometheus format.
 
-## Architecture
+## Architecture (100% Cloud-Hosted & Free)
 
-- **Custom Node.js Exporter**: Collects personal metrics, utilizes background timers to cache responses, respects rate limits, and exports Prometheus-compliant metrics on `/metrics`.
-- **Prometheus**: Periodically scrapes the custom exporter metrics.
-- **Loki & Promtail**: Collects container JSON logs (errors, info) for debugging.
-- **Grafana**: Dashboard interface to visualize the metrics and query Loki logs.
+- **Node.js Exporter**: Deployed on a free container service (e.g. Render, Koyeb). It queries third-party APIs asynchronously on background intervals and exposes a `/metrics` route secured by Bearer Token authorization.
+- **Grafana Cloud**: A free hosted Prometheus instance pulls metrics from your cloud exporter and displays them on hosted dashboards. No local databases or local servers are required!
 
-## Setup & Running
+## Deployment Setup
 
-### 1. Configure Credentials
-Copy `.env.example` to `.env` and fill out your tokens:
-```bash
-cp .env.example .env
-```
+### 1. Deploy the Exporter to the Cloud (Render / Koyeb)
+1. Push this project folder to your private GitHub repository (exclude `.env` using `.gitignore`).
+2. Register for a free account at [Render](https://render.com) or [Koyeb](https://www.koyeb.com).
+3. Create a new **Web Service** and connect it to your GitHub repository.
+4. Set the following environment variables in your deployment dashboard:
+   - `EXPORTER_API_KEY`: A secure key you generate to protect your metrics endpoint (e.g., `my-super-secret-token`).
+   - `GITHUB_USERNAME` / `GITHUB_TOKEN`
+   - `WAKATIME_USERNAME` / `WAKATIME_API_KEY`
+   - `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` / `SPOTIFY_REFRESH_TOKEN`
+5. Once deployed, note down your public URL (e.g., `https://lifestack-exporter.onrender.com`).
 
-| Environment Variable | Description |
-|---|---|
-| `GITHUB_USERNAME` | Your GitHub user handle. |
-| `GITHUB_TOKEN` | Personal Access Token with read scopes. |
-| `WAKATIME_USERNAME` | Your WakaTime user handle. |
-| `WAKATIME_API_KEY` | Raw WakaTime API key (will be automatically Basic-Auth base64 encoded). |
-| `SPOTIFY_CLIENT_ID` | Spotify developer application Client ID. |
-| `SPOTIFY_CLIENT_SECRET` | Spotify developer application Client Secret. |
-| `SPOTIFY_REFRESH_TOKEN` | Refresh token generated for user scope authentication. |
+### 2. Configure Grafana Cloud (Free)
+1. Register for a free account at [Grafana Cloud](https://grafana.com/products/grafana-cloud/).
+2. From your Grafana Cloud dashboard, navigate to **Connections** -> **Add connection**.
+3. Search for and select the **Metrics Endpoint** integration.
+4. Configure a new Scrape Job:
+   - **Job Name**: `lifestack-exporter`
+   - **URL**: `https://your-app-url.onrender.com/metrics`
+   - **Scrape Interval**: `60s` (or your preference)
+   - **Authentication**: Select **Bearer Token** and enter the secret key you set in `EXPORTER_API_KEY`.
+5. Save the integration. Grafana Cloud will now pull your digital metrics from the exporter on Render/Koyeb and store them securely in the cloud!
 
-### 2. Start the Stack (Using Docker)
-Spin up the entire stack using Docker Compose:
-```bash
-docker compose up -d --build
-```
+---
 
-### 3. Running Locally (Without Docker)
-To run only the custom Node.js exporter locally:
+## Local Development
+To run and test the exporter locally on your machine:
 ```bash
 # Install dependencies
 pnpm install
 
-# Start the application
+# Setup local credentials
+cp .env.example .env
+# Fill in your tokens inside .env
+
+# Run the exporter
 pnpm start
 ```
-
-### 4. Ports & Dashboards
-
-- **Prometheus**: [http://localhost:9090](http://localhost:9090)
-- **Exporter `/metrics`**: [http://localhost:3000/metrics](http://localhost:3000/metrics)
-- **Grafana**: [http://localhost:3001](http://localhost:3001) (Credentials: `admin` / `admin`)
-
-## Deployment (via Dokploy)
-
-Since the stack is fully containerized with `docker-compose.yml`, you can deploy it seamlessly to your VPS using **Dokploy**:
-
-1. **Commit & Push to Git**:
-   Push this project folder to your private GitHub repository (do not commit your `.env` file).
-2. **Create Compose App**:
-   - Open your Dokploy dashboard.
-   - Go to **Applications** -> **Create Application** -> Select **Compose**.
-   - Point it to your GitHub repository and branch.
-3. **Configure Environments**:
-   - Under the **Environment** tab in Dokploy, add all the variables from your `.env` file (e.g., `GITHUB_TOKEN`, `SPOTIFY_CLIENT_ID`, etc.).
-4. **Deploy**:
-   - Click **Deploy** inside Dokploy. Dokploy will read `docker-compose.yml`, pull/build the containers, and run the entire stack.
-5. **Configure Domain/SSL**:
-   - Point your custom domains (e.g. `lifestack.yourdomain.com` or `grafana.yourdomain.com`) to port `3001` (Grafana) or port `3000` (Exporter) in the Dokploy settings tab.
+The exporter will be active at `http://localhost:3000/metrics`.

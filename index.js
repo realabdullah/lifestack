@@ -240,13 +240,30 @@ startBackgroundPolling();
 
 // --- HTTP Routes ---
 
+// Authentication Middleware to secure the public metrics endpoint
+const authenticate = (req, res, next) => {
+  const apiKey = process.env.EXPORTER_API_KEY;
+  if (!apiKey) {
+    logger.warn('EXPORTER_API_KEY is not set. Metrics endpoint is currently PUBLIC!');
+    return next();
+  }
+
+  const authHeader = req.headers.authorization;
+  if (!authHeader || authHeader !== `Bearer ${apiKey}`) {
+    logger.warn('Unauthorized metrics request blocked.');
+    return res.status(401).send('Unauthorized');
+  }
+
+  next();
+};
+
 // The metrics endpoint for Prometheus scraping
-app.get("/metrics", async (req, res) => {
+app.get('/metrics', authenticate, async (req, res) => {
   try {
-    res.set("Content-Type", register.contentType);
+    res.set('Content-Type', register.contentType);
     res.end(await register.metrics());
   } catch (error) {
-    logger.error({ err: error.message }, "Error generating Prometheus metrics");
+    logger.error({ err: error.message }, 'Error generating Prometheus metrics');
     res.status(500).end(error);
   }
 });

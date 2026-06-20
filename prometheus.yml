@@ -3,6 +3,12 @@ global:
   evaluation_interval: 15s
 
 scrape_configs:
-  - job_name: 'lifestack-exporter'
+  - job_name: 'lifestack-exporter-remote'
+    scheme: https
+    metrics_path: /metrics
+    # Protects the remote exporter via Bearer Auth
+    authorization:
+      type: Bearer
+      credentials: 'EXPORTER_API_KEY_HERE'
     static_configs:
-      - targets: ['exporter:3000']
+      - targets: ['your-exporter-app.onrender.com'] # Replace with your deployed Render or Koyeb URL
