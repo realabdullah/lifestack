@@ -4,6 +4,7 @@ import axios from "axios";
 import express from "express";
 import pino from "pino";
 import client from "prom-client";
+import { pushTimeseries } from "prometheus-remote-write";
 
 // Initialize structured JSON logging via Pino
 const logger = pino({
@@ -73,6 +74,12 @@ const POLL_INTERVAL_WAKATIME =
   parseInt(process.env.POLL_INTERVAL_WAKATIME_MS, 10) || 300000; // 5 min
 const POLL_INTERVAL_SPOTIFY =
   parseInt(process.env.POLL_INTERVAL_SPOTIFY_MS, 10) || 30000; // 30 sec
+
+// Grafana Cloud Remote Write Configuration
+const GRAFANA_REMOTE_WRITE_URL = process.env.GRAFANA_REMOTE_WRITE_URL;
+const GRAFANA_REMOTE_WRITE_USERNAME = process.env.GRAFANA_REMOTE_WRITE_USERNAME;
+const GRAFANA_REMOTE_WRITE_PASSWORD = process.env.GRAFANA_REMOTE_WRITE_PASSWORD;
+const GRAFANA_PUSH_INTERVAL = parseInt(process.env.GRAFANA_PUSH_INTERVAL_MS, 10) || 60000; // 60 sec
 
 // 1. GitHub API Fetching
 async function fetchGitHubMetrics() {
@@ -219,20 +226,78 @@ async function fetchSpotifyMetrics() {
   }
 }
 
+// --- Grafana Cloud Push Logic ---
+// Reads all current metric values from the prom-client registry,
+// converts them into Prometheus remote_write timeseries format,
+// and pushes them directly to Grafana Cloud.
+
+async function pushMetricsToGrafana() {
+  if (!GRAFANA_REMOTE_WRITE_URL || !GRAFANA_REMOTE_WRITE_USERNAME || !GRAFANA_REMOTE_WRITE_PASSWORD) {
+    logger.warn('Grafana Cloud credentials not configured. Skipping push.');
+    return;
+  }
+
+  try {
+    // Get all metrics from the registry as JSON
+    const metricsJSON = await register.getMetricsAsJSON();
+    const timeseries = [];
+
+    for (const metric of metricsJSON) {
+      for (const value of metric.values) {
+        // Build labels object with __name__ as required by remote_write protocol
+        const labels = { __name__: metric.name, ...value.labels };
+
+        // Skip default Node.js process metrics with high cardinality to stay within free tier limits
+        if (metric.name.startsWith('nodejs_') || metric.name.startsWith('process_')) continue;
+
+        timeseries.push({
+          labels,
+          samples: [{ value: value.value, timestamp: Date.now() }],
+        });
+      }
+    }
+
+    if (timeseries.length === 0) {
+      logger.debug('No timeseries to push.');
+      return;
+    }
+
+    // Push to Grafana Cloud using Basic Auth
+    await pushTimeseries(timeseries, {
+      url: GRAFANA_REMOTE_WRITE_URL,
+      headers: {
+        'Authorization': `Basic ${Buffer.from(`${GRAFANA_REMOTE_WRITE_USERNAME}:${GRAFANA_REMOTE_WRITE_PASSWORD}`).toString('base64')}`,
+      },
+    });
+
+    logger.info({ count: timeseries.length }, 'Successfully pushed metrics to Grafana Cloud');
+  } catch (error) {
+    apiFetchErrorsCounter.inc({ service: 'grafana_push' });
+    logger.error({ err: error.message }, 'Failed to push metrics to Grafana Cloud');
+  }
+}
+
 // --- Background Polling Init ---
 
 function startBackgroundPolling() {
-  logger.info("Starting background metric polling loops...");
+  logger.info('Starting background metric polling loops...');
 
-  // Initial executions
+  // Initial API data fetches
   fetchGitHubMetrics();
   fetchWakaTimeMetrics();
   fetchSpotifyMetrics();
 
-  // Intervals
+  // API polling intervals
   setInterval(fetchGitHubMetrics, POLL_INTERVAL_GITHUB);
   setInterval(fetchWakaTimeMetrics, POLL_INTERVAL_WAKATIME);
   setInterval(fetchSpotifyMetrics, POLL_INTERVAL_SPOTIFY);
+
+  // Push metrics to Grafana Cloud on a separate interval
+  // Delay the first push by 10s to allow initial API fetches to complete
+  setTimeout(() => {
+    pushMetricsToGrafana();
+    setInterval(pushMetricsToGrafana, GRAFANA_PUSH_INTERVAL);
+  }, 10000);
 }
 
 // Start polling loops
