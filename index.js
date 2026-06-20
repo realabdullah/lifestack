@@ -1,6 +1,6 @@
 // @ts-nocheck
-import 'dotenv/config';
 import axios from "axios";
+import "dotenv/config";
 import express from "express";
 import pino from "pino";
 import client from "prom-client";
@@ -79,7 +79,8 @@ const POLL_INTERVAL_SPOTIFY =
 const GRAFANA_REMOTE_WRITE_URL = process.env.GRAFANA_REMOTE_WRITE_URL;
 const GRAFANA_REMOTE_WRITE_USERNAME = process.env.GRAFANA_REMOTE_WRITE_USERNAME;
 const GRAFANA_REMOTE_WRITE_PASSWORD = process.env.GRAFANA_REMOTE_WRITE_PASSWORD;
-const GRAFANA_PUSH_INTERVAL = parseInt(process.env.GRAFANA_PUSH_INTERVAL_MS, 10) || 60000; // 60 sec
+const GRAFANA_PUSH_INTERVAL =
+  parseInt(process.env.GRAFANA_PUSH_INTERVAL_MS, 10) || 60000; // 60 sec
 
 // 1. GitHub API Fetching
 async function fetchGitHubMetrics() {
@@ -232,8 +233,12 @@ async function fetchSpotifyMetrics() {
 // and pushes them directly to Grafana Cloud.
 
 async function pushMetricsToGrafana() {
-  if (!GRAFANA_REMOTE_WRITE_URL || !GRAFANA_REMOTE_WRITE_USERNAME || !GRAFANA_REMOTE_WRITE_PASSWORD) {
-    logger.warn('Grafana Cloud credentials not configured. Skipping push.');
+  if (
+    !GRAFANA_REMOTE_WRITE_URL ||
+    !GRAFANA_REMOTE_WRITE_USERNAME ||
+    !GRAFANA_REMOTE_WRITE_PASSWORD
+  ) {
+    logger.warn("Grafana Cloud credentials not configured. Skipping push.");
     return;
   }
 
@@ -248,7 +253,11 @@ async function pushMetricsToGrafana() {
         const labels = { __name__: metric.name, ...value.labels };
 
         // Skip default Node.js process metrics with high cardinality to stay within free tier limits
-        if (metric.name.startsWith('nodejs_') || metric.name.startsWith('process_')) continue;
+        if (
+          metric.name.startsWith("nodejs_") ||
+          metric.name.startsWith("process_")
+        )
+          continue;
 
         timeseries.push({
           labels,
@@ -258,29 +267,36 @@ async function pushMetricsToGrafana() {
     }
 
     if (timeseries.length === 0) {
-      logger.debug('No timeseries to push.');
+      logger.debug("No timeseries to push.");
       return;
     }
 
     // Push to Grafana Cloud using Basic Auth
-    await pushTimeseries(timeseries, {
+    const response = await pushTimeseries(timeseries, {
       url: GRAFANA_REMOTE_WRITE_URL,
       headers: {
-        'Authorization': `Basic ${Buffer.from(`${GRAFANA_REMOTE_WRITE_USERNAME}:${GRAFANA_REMOTE_WRITE_PASSWORD}`).toString('base64')}`,
+        Authorization: `Basic ${Buffer.from(`${GRAFANA_REMOTE_WRITE_USERNAME}:${GRAFANA_REMOTE_WRITE_PASSWORD}`).toString("base64")}`,
       },
     });
 
-    logger.info({ count: timeseries.length }, 'Successfully pushed metrics to Grafana Cloud');
+    logger.info(
+      { count: timeseries.length },
+      "Successfully pushed metrics to Grafana Cloud",
+    );
+    logger.info({ statusCode: response?.status }, "Push response status");
   } catch (error) {
-    apiFetchErrorsCounter.inc({ service: 'grafana_push' });
-    logger.error({ err: error.message }, 'Failed to push metrics to Grafana Cloud');
+    apiFetchErrorsCounter.inc({ service: "grafana_push" });
+    logger.error(
+      { err: error.message },
+      "Failed to push metrics to Grafana Cloud",
+    );
   }
 }
 
 // --- Background Polling Init ---
 
 function startBackgroundPolling() {
-  logger.info('Starting background metric polling loops...');
+  logger.info("Starting background metric polling loops...");
 
   // Initial API data fetches
   fetchGitHubMetrics();
@@ -309,26 +325,28 @@ startBackgroundPolling();
 const authenticate = (req, res, next) => {
   const apiKey = process.env.EXPORTER_API_KEY;
   if (!apiKey) {
-    logger.warn('EXPORTER_API_KEY is not set. Metrics endpoint is currently PUBLIC!');
+    logger.warn(
+      "EXPORTER_API_KEY is not set. Metrics endpoint is currently PUBLIC!",
+    );
     return next();
   }
 
   const authHeader = req.headers.authorization;
   if (!authHeader || authHeader !== `Bearer ${apiKey}`) {
-    logger.warn('Unauthorized metrics request blocked.');
-    return res.status(401).send('Unauthorized');
+    logger.warn("Unauthorized metrics request blocked.");
+    return res.status(401).send("Unauthorized");
   }
 
   next();
 };
 
 // The metrics endpoint for Prometheus scraping
-app.get('/metrics', authenticate, async (req, res) => {
+app.get("/metrics", authenticate, async (req, res) => {
   try {
-    res.set('Content-Type', register.contentType);
+    res.set("Content-Type", register.contentType);
     res.end(await register.metrics());
   } catch (error) {
-    logger.error({ err: error.message }, 'Error generating Prometheus metrics');
+    logger.error({ err: error.message }, "Error generating Prometheus metrics");
     res.status(500).end(error);
   }
 });
