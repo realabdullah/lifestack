@@ -82,6 +82,15 @@ const GRAFANA_REMOTE_WRITE_PASSWORD = process.env.GRAFANA_REMOTE_WRITE_PASSWORD;
 const GRAFANA_PUSH_INTERVAL =
   parseInt(process.env.GRAFANA_PUSH_INTERVAL_MS, 10) || 60000; // 60 sec
 
+logger.info(
+  {
+    username: GRAFANA_REMOTE_WRITE_USERNAME,
+    passwordLength: GRAFANA_REMOTE_WRITE_PASSWORD?.length,
+    passwordPrefix: GRAFANA_REMOTE_WRITE_PASSWORD?.slice(0, 8),
+  },
+  "Remote write credentials loaded",
+);
+
 // 1. GitHub API Fetching
 async function fetchGitHubMetrics() {
   if (!GITHUB_TOKEN) {
